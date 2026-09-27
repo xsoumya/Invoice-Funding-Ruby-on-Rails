@@ -1,0 +1,83 @@
+<main class="enquiry-shell">
+  <aside class="intro-panel">
+    <div class="brand-mark"><span></span> NORTHSTAR</div>
+    <div class="intro-copy">
+      <p class="eyebrow">Let's make progress</p>
+      <h1>Tell us what you're working towards.</h1>
+      <p class="intro-text">Share a few details and a member of our team will get back to you within one business day.</p>
+    </div>
+    <div class="contact-note">
+      <div class="note-icon">↗</div>
+      <div>
+        <strong>Prefer a conversation?</strong>
+        <p>Call us on <a href="tel:+6125550138">+61 2 5550 138</a></p>
+      </div>
+    </div>
+    <div class="panel-footer">Sydney · Melbourne · Auckland</div>
+  </aside>
+
+  <section class="form-panel">
+    <div class="form-header">
+      <div>
+        <p class="eyebrow">Customer enquiry</p>
+        <h2>How can we help?</h2>
+      </div>
+      <span class="step-count">01 <i>/</i> 01</span>
+    </div>
+
+    <% if notice %>
+      <div class="success-message"><span>✓</span><%= notice %></div>
+    <% end %>
+
+    <%= form_with model: @enquiry, local: true, class: "enquiry-form" do |form| %>
+      <% if @enquiry.errors.any? %>
+        <div class="error-message"><%= @enquiry.errors.full_messages.to_sentence %></div>
+      <% end %>
+
+      <div class="field-grid">
+        <div class="field">
+          <%= form.label :first_name, "First name" %>
+          <%= form.text_field :first_name, placeholder: "Alex", autocomplete: "given-name", required: true %>
+        </div>
+        <div class="field">
+          <%= form.label :last_name, "Last name" %>
+          <%= form.text_field :last_name, placeholder: "Morgan", autocomplete: "family-name", required: true %>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        <div class="field">
+          <%= form.label :email, "Work email" %>
+          <%= form.email_field :email, placeholder: "alex@company.com", autocomplete: "email", required: true %>
+        </div>
+        <div class="field">
+          <%= form.label :phone, "Phone number" %>
+          <%= form.telephone_field :phone, placeholder: "+61 400 000 000", autocomplete: "tel" %>
+        </div>
+      </div>
+
+      <div class="field">
+        <%= form.label :company, "Company" %>
+        <%= form.text_field :company, placeholder: "Company name", autocomplete: "organization" %>
+      </div>
+
+      <div class="field">
+        <%= form.label :enquiry_type, "What can we help with?" %>
+        <%= form.select :enquiry_type, Enquiry::ENQUIRY_TYPES, { prompt: "Select an option" }, required: true %>
+      </div>
+
+      <div class="field">
+        <%= form.label :message, "Your message" %>
+        <%= form.text_area :message, placeholder: "Tell us a little about your project or question...", rows: 4, required: true %>
+        <span class="field-hint">Up to 2,000 characters</span>
+      </div>
+
+      <div class="form-actions">
+        <p>By submitting, you agree to our <a href="#">privacy policy</a>.</p>
+        <%= form.button class: "submit-button", type: "submit" do %>
+          Send enquiry <span>→</span>
+        <% end %>
+      </div>
+    <% end %>
+  </section>
+</main>

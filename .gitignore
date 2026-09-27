@@ -1,0 +1,11 @@
+/Dockerfile
+# Rails
+/log/*
+/tmp/*
+/db/*.sqlite3
+/db/*.sqlite3-*
+/storage/*
+/.bundle
+
+# Terraform plan output (may contain secrets)
+/infra/tfplan

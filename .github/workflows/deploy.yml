@@ -1,0 +1,130 @@
+name: Deploy Rails to ECS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-southeast-2
+  APP_NAME: customer-enquiries
+  TF_WORKING_DIR: infra
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Initialize Terraform
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init -input=false
+
+      - name: Validate Terraform
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform fmt -check
+          terraform validate
+
+      - name: Create ECR repository if needed
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          cat > ci.auto.tfvars <<EOF
+          aws_region = "${AWS_REGION}"
+          name = "${APP_NAME}"
+          environment = "production"
+          container_image = "bootstrap-placeholder"
+          desired_count = 2
+          database_instance_class = "db.t4g.micro"
+          EOF
+          terraform apply -input=false -auto-approve \
+            -target=aws_ecr_repository.app
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="$REGISTRY/${APP_NAME}:$IMAGE_TAG"
+          docker build --platform linux/amd64 -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+      - name: Apply infrastructure and deploy ECS
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.image_uri }}
+        run: |
+          cat > ci.auto.tfvars <<EOF
+          aws_region = "${AWS_REGION}"
+          name = "${APP_NAME}"
+          environment = "production"
+          container_image = "${IMAGE_URI}"
+          desired_count = 2
+          database_instance_class = "db.t4g.micro"
+          EOF
+          terraform apply -input=false -auto-approve
+          rm -f ci.auto.tfvars
+
+      - name: Run database migrations
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        env:
+          AWS_PAGER: ""
+        run: |
+          SUBNETS=$(terraform output -json private_subnet_ids | jq -r 'join(",")')
+          SECURITY_GROUP=$(terraform output -raw ecs_security_group_id)
+          TASK_DEFINITION=$(aws ecs describe-services \
+            --cluster "$APP_NAME" \
+            --services "$APP_NAME" \
+            --query 'services[0].taskDefinition' \
+            --output text)
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$APP_NAME" \
+            --task-definition "$TASK_DEFINITION" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUP],assignPublicIp=DISABLED}" \
+            --overrides '{"containerOverrides":[{"name":"customer-enquiries","command":["bundle","exec","rails","db:migrate"]}]}' \
+            --query 'tasks[0].taskArn' \
+            --output text)
+          aws ecs wait tasks-stopped --cluster "$APP_NAME" --tasks "$TASK_ARN"
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "$APP_NAME" \
+            --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+          test "$EXIT_CODE" = "0"
+
+      - name: Check ECS rollout
+        env:
+          AWS_PAGER: ""
+        run: |
+          aws ecs wait services-stable \
+            --cluster "$APP_NAME" \
+            --services "$APP_NAME"
+
+      - name: Report endpoint
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform output -raw load_balancer_url
